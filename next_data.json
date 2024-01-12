@@ -1,0 +1,14 @@
+[
+  {"model": "user", "fields": {"name": 1}},
+  {"model": "user_words", "fields": {"user_id": 1, "words_id": 1}},
+  {"model": "user_words", "fields": {"user_id": 1, "words_id": 2}},
+  {"model": "user_words", "fields": {"user_id": 1, "words_id": 3}},
+  {"model": "user_words", "fields": {"user_id": 1, "words_id": 4}},
+  {"model": "user_words", "fields": {"user_id": 1, "words_id": 5}},
+  {"model": "user_words", "fields": {"user_id": 1, "words_id": 6}},
+  {"model": "user_words", "fields": {"user_id": 1, "words_id": 7}},
+  {"model": "user_words", "fields": {"user_id": 1, "words_id": 8}},
+  {"model": "user_words", "fields": {"user_id": 1, "words_id": 9}},
+  {"model": "user_words", "fields": {"user_id": 1, "words_id": 10}}
+]
+
