@@ -1,84 +1,12 @@
 import json
 import random
-import sqlalchemy
-import sqlalchemy as sq
+from table_starter import*
 from sqlalchemy.sql import func
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlalchemy import and_
 from telebot import types, TeleBot, custom_filters
 from telebot.storage import StateMemoryStorage
 from telebot.handler_backends import State, StatesGroup
 
-
-#Создание и заполнение базы данных
-Base = declarative_base()
-
-
-class User(Base):
-    __tablename__ = "user"
-
-    #id = sq.Column(sq.Integer, primary_key=True)
-    name = sq.Column(sq.Integer, primary_key=True)
-    words = relationship("User_Words", backref='users')
-    
-    def __str__(self):
-        return f'{self.name}'
-
-
-class User_Words(Base):
-    __tablename__ = 'user_words'
-    id = sq.Column(sq.Integer, primary_key=True)
-    user_id = sq.Column(sq.Integer(), sq.ForeignKey("user.name"))
-    words_id =  sq.Column(sq.Integer(), sq.ForeignKey("words.id"))
-
-
-class Words(Base):
-    __tablename__ = "words"
-
-    id = sq.Column(sq.Integer, primary_key=True)
-    word = sq.Column(sq.String(length=160), unique=True)
-    translation = sq.Column(sq.String(length=160), unique=True)
-    user = relationship("User_Words", backref='wordss')
-    
-    def __str__(self):
-        return f'{self.word}, {self.translation}'
-
-
-class Trashcan(Base):
-    __tablename__ = "trashcan"
-
-    id = sq.Column(sq.Integer, primary_key=True)
-    ran = sq.Column(sq.String(length=40), unique=True)
-  
-    def __str__(self):
-        return f'{self.ran}'
-
-# 1 - удаление всего из базы; 2 - создание новой базы
-def create_tables(engine):
-    #Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
-
-
-#Создание адреса базы данных
-DSN = input("Введите адрес базы данных, например: ")
-engine = sqlalchemy.create_engine(DSN)
-create_tables(engine)
-
-#Создание сессии
-Session = sessionmaker(bind = engine)
-session = Session()
-
-# Заполнение базы при первом открытии бота
-with open(r"tests_data.json", "r", encoding="utf-8") as f:
-    data = json.load(f)
-    for record in data:
-        model = {
-            "user" : User,
-            "words": Words,
-            "user_words": User_Words,
-            "trashcan": Trashcan,
-        }[record.get('model')]
-        session.add(model(**record.get('fields')))
-    session.commit()
 
 #Запуск бота
 print('Start telegram bot...')
@@ -179,11 +107,13 @@ def create_cards(message):
     target_word_btn = types.KeyboardButton(target_word)
     buttons.append(target_word_btn)
     #Четыре рандомных слова из базы
-    lis_t = []   
-    q = session.query(Trashcan).order_by(func.random()).limit(4).all()
+    trach = []
+    q = session.query(Words).all()
     for i in q:
-        lis_t.append((str(i)))
-    others = lis_t  # брать из БД
+        trach.append(((list(str(i).split(", ")))[0]))
+    if a in trach:
+        trach.remove(a)
+    others = random.sample(trach, 4)  # брать из БД
     other_words_btns = [types.KeyboardButton(word) for word in others]
     buttons.extend(other_words_btns)
     random.shuffle(buttons)
@@ -209,15 +139,43 @@ def next_cards(message):
 @bot.message_handler(func=lambda message: message.text == Command.DELETE_WORD)
 def delete_word(message):
     cid = message.chat.id
-    with bot.retrieve_data(message.from_user.id, message.chat.id) as data:
-        a = (data.get('target_word'))  # удалить из БД
-        print(a)
-        #Удаление отдельного слова. Удаляется слово из очередной карточки.
-        user = session.query(User).filter_by(name = cid).first()
-        word = session.query(Words).filter_by(word = a).first()
-        q = session.query(User_Words).filter_by(user_id=user.name, words_id=word.id).first()
-        session.delete(q)
-        session.commit()
+    userStep[cid] = 1
+    if message.text == Command.DELETE_WORD:
+        msg = bot.send_message(cid, "Введите слово на английском языке для удаления")
+        bot.register_next_step_handler(msg, user_answer_del)
+    
+def user_answer_del(message):
+    vision = []
+    vision_all = []
+    cid = message.chat.id
+    name_del = message.text
+    if name_del == "Дальше ⏭":
+        create_cards(message)
+    elif name_del == "Добавить слово ➕":
+        add_word(message)
+    elif name_del == "Удалить слово🔙":
+        delete_word(message)
+        return
+    else:
+        word = session.query(Words).filter_by(word=name_del).first()
+        user = session.query(User).filter_by(name=cid).first()
+        q = session.query(Words).filter_by(is_public=True).all()
+        for i in q:
+            vision.append(((list(str(i).split(", ")))[0]))
+        q1 = session.query(Words).join(User_Words).join(User).filter(and_(User.name == cid, User.name == User_Words.user_id, Words.id == User_Words.words_id, Words.is_public == False)).all()
+        for i in q1:
+            vision_all.append(((list(str(i).split(", ")))[0]))
+        if name_del in vision:
+            bot.send_message(cid, "Это слово не подлежит удалению")
+            create_cards(message)
+        elif name_del in vision_all:
+            q = session.query(User_Words).filter_by(user_id=user.name, words_id=word.id).first()
+            session.delete(q)
+            session.commit()
+            create_cards(message)
+        else:
+            bot.send_message(cid, "Это слово не находится в Вашем списке")
+            create_cards(message)
 
 #Добавление слова в базу для соответствующего ID
 @bot.message_handler(func=lambda message: message.text == Command.ADD_WORD)
@@ -225,30 +183,94 @@ def add_word(message):
     cid = message.chat.id
     userStep[cid] = 1
     if message.text == Command.ADD_WORD:
-        bot.reply_to(message, 'Введите слово на английском языке и через запятую с пробелом его перевод')
-        @bot.message_handler(content_types=['text'])
-        def message_input_step(message):
-             global text
-             text = message.text
-             try:
-                 a = (list(str(message.text).split(", ")))[0]
-                 b = (list(str(message.text).split(", ")))[1] # сохранить в БД
-                 bot.reply_to(message, f'Добавлено слово {a} с переаодом {b} ')
-             except:
-                 pass
-             try:
-                 wr1 = Words(word = a, translation= b)
-                 session.add(wr1)
-                 session.commit()
-                 q = session.query(Words).filter(Words.word == a).all()
-                 for i in q:
-                     new_id = (i.id)
-                     u_w4 = User_Words(user_id = cid, words_id = new_id)
-                     session.add(u_w4)
-                     session.commit()
-             except:
-                 pass
-        bot.register_next_step_handler(message, message_input_step)
+        msg = bot.send_message(cid, "Введите слово на английском языке")
+        bot.register_next_step_handler(msg, user_answer)
+
+new_word_list = []
+
+def user_answer(message):
+    cid = message.chat.id
+    name = message.text
+    vision = []
+    vision_all = []
+    if name == "Дальше ⏭":
+        create_cards(message)
+    elif name == "Добавить слово ➕":
+        add_word(message)
+    elif name == "Удалить слово🔙":
+        delete_word(message)
+        return
+    else:
+        print(name)
+        word = session.query(Words).filter_by(word=name).first()
+        user = session.query(User).filter_by(name=cid).first()
+        q = session.query(Words).filter_by(is_public=True).all()
+        for i in q:
+            vision.append(((list(str(i).split(", ")))[0]))
+        q1 = session.query(Words).join(User_Words).join(User).filter(and_(User.name == User_Words.user_id, Words.id == User_Words.words_id, Words.is_public == False)).all()
+        for i in q1:
+            vision_all.append(((list(str(i).split(", ")))[0]))
+        name_x = name
+        name_x_del = list(name_x)
+        name_x_del.pop(-1)
+        print(vision)
+        print(vision_all)
+        bild = ("".join(name_x_del))
+        if name in vision or bild in vision:
+            bot.send_message(cid, "Это слово уже есть в базовом списке")
+            create_cards(message)
+        elif name in vision_all:
+            bot.send_message(cid, "Это слово Вы уже добавляли")
+            create_cards(message)
+        else:
+            new_word_list.append(name)
+            msg = bot.send_message(cid, "Введите перевод")
+            bot.register_next_step_handler(msg, user_answer2)
+        
+
+def user_answer2(message):
+    all_false = []
+    cid = message.chat.id
+    name = message.text
+    if name == "Дальше ⏭":
+        create_cards(message)
+    elif name == "Добавить слово ➕":
+        add_word(message)
+    elif name == "Удалить слово🔙":
+        delete_word(message)
+        return new_word_list.clear()
+    else:
+        print(name)
+        q1 = session.query(Words).filter_by(is_public=False).all()
+        for i in q1:
+            all_false.append(i)
+        new_word_list.append(name)
+        a = new_word_list[0]
+        b = name # сохранить в БД
+        if a in all_false:
+            q = session.query(Words).filter(Words.word == new_word_list[0]).all()
+            for i in q:
+                new_id = (i.id)
+                u_w4 = User_Words(user_id = cid, words_id = new_id)
+                session.add(u_w4)
+                session.commit()
+                create_cards(message)
+        else:
+            try:
+                wr1 = Words(word = a, translation = b, is_public = False)
+                session.add(wr1)
+                session.commit()
+                q = session.query(Words).filter(Words.word == a).all()
+                for i in q:
+                    new_id = (i.id)
+                    u_w4 = User_Words(user_id = cid, words_id = new_id)
+                    session.add(u_w4)
+                    session.commit()
+            except:
+                pass
+            bot.reply_to(message, f'Добавлено слово {a} с переводом {b} ')
+            create_cards(message)
+       
 
 #Функция выделяет крестом на кнопках неправильные ответы, либо отвечает при правильном.
 @bot.message_handler(func=lambda message: True, content_types=['text'])
