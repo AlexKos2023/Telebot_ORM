@@ -16,4 +16,3 @@ telebot==0.0.5
 uritemplate==4.1.1
 virtualenv==20.24.7
 yarg==0.1.9
-
